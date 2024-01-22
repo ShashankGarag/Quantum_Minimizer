@@ -1,27 +1,24 @@
-import math
-
+import random
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
-from qiskit.utils import algorithm_globals
-from qiskit.algorithms.amplitude_amplifiers.grover import Grover
-from qiskit.algorithms import AmplificationProblem
 from qiskit.circuit.library import XGate, ZGate
 from qiskit import Aer
-from qiskit.utils import QuantumInstance
-from qiskit.visualization import plot_histogram
 from qiskit import transpile
+import numpy as np
+import pickle
+from timeit import Timer
 
-decision_space = [5, 4, 12, 10, 8]
+decision_space = [random.randint(1, 1000) for _ in range(20)]
 
 
 class QuantumMinimizer:
 
-    def __init__(self, inputs, outputs):
+    # Initialize all the main values of the Quantum Circuit
+    def __init__(self, inputs, outputs, search_space):
         self.inputs = inputs
         self.outputs = outputs
-        self.best_value = '0'
-        self.control_qubits = [1]
-        self.x_gates = [1]
+        self.search_space = search_space
 
+    # Create the state preparation operator
     def state_preparation(self):
         # Create Circuit
         register = QuantumRegister(self.inputs + self.outputs)
@@ -31,18 +28,19 @@ class QuantumMinimizer:
         hadamards.h(self.inputs + self.outputs - 1)
         return hadamards
 
+    # Create the U gate
     def u_gate(self):
         register = QuantumRegister(self.inputs + self.outputs)
         initialize = QuantumCircuit(register)
         custom_gate = XGate().control(self.inputs)
 
-        # Create a list of binary values from the decision space
+        # Create a list of binary values from the decision space (CHANGE TO MANUAL)
         binary_decision_space = []
-        for x in decision_space:
+        for x in self.search_space:
             s = format(x, "0" + str(self.outputs - 1) + "b")
             binary_decision_space.append(s)
 
-        # Create list of binary indexes for each list value
+        # Create list of binary indexes for each list value (CHANGE TO MANUAL)
         binary_indexes = []
         regular_indexes = []
         length = range(len(binary_decision_space))
@@ -52,7 +50,7 @@ class QuantumMinimizer:
         for i in length:
             regular_indexes.append(i)
 
-        # Number of contol qubits
+        # Number of control qubits
         state_qubits = []
         for i in range(len(binary_indexes[0])):
             state_qubits.append(i)
@@ -70,32 +68,10 @@ class QuantumMinimizer:
                     for index in range(len(value)):
                         if value[index] == '0':
                             initialize.x(register[index])
+                    initialize.barrier()
         return initialize
 
-    def oracle(self):
-        oracle_register = []
-        oracle_register_new = []
-        oracle_register_final = []
-        oracle_register.extend(self.control_qubits)
-        oracle_register.append(self.inputs + self.outputs)
-        for i in oracle_register:
-            oracle_register_new.append(i - 1)
-        register = QuantumRegister(self.inputs + self.outputs)
-        oracle = QuantumCircuit(register)
-        custom_gate = XGate().control(self.control_qubits[-1])
-        for x in range(len(str(self.x_gates[-1]))):
-            if str(self.x_gates[-1])[x] == '1':
-                oracle.x(register[x + self.inputs])
-        for x in oracle_register_new[:-1]:
-            x += self.inputs
-            oracle_register_final.append(x)
-        oracle_register_final.append(self.inputs + self.outputs - 1)
-        oracle.append(custom_gate, oracle_register_final)
-        for x in range(len(str(self.x_gates[-1]))):
-            if str(self.x_gates[-1])[x] == '1':
-                oracle.x(register[x + self.inputs])
-        return oracle
-
+    # Create the Diffusion Operator
     def diffuser(self):
         inputs = []
         for i in range(self.inputs):
@@ -103,51 +79,166 @@ class QuantumMinimizer:
         register = QuantumRegister(self.inputs + self.outputs)
         diffuser = QuantumCircuit(register)
         diffuser.h(range(self.inputs))
-        diffuser.z(range(self.inputs))
+        diffuser.x(range(self.inputs))
+        diffuser.h(self.inputs - 1)
         custom_gate = ZGate().control(self.inputs - 1)
         diffuser.append(custom_gate, inputs)
+        diffuser.h(self.inputs - 1)
+        diffuser.x(range(self.inputs))
         diffuser.h(range(self.inputs))
         return diffuser
 
-    def solve(self):
+    def save_objects(self):
+        with open('state_prep.pkl', 'wb') as file:
+            pickle.dump(self.state_preparation(), file)
+        with open('u_gate.pkl', 'wb') as file:
+            pickle.dump(self.u_gate(), file)
+        with open('diffuser.pkl', 'wb') as file:
+            pickle.dump(self.diffuser(), file)
 
-        "Not implemented yet:"
-        """value = self.outputs - 1
-        for digit in range(value):
-            for segment in range(digit + 1):
-                if result == self.best_value:  # Replace value[segment] with the value of the qubits there
-                    self.x_gates.append(segment)
-                    self.best_value += '0'
-                else:
-                    self.best_value += '0'
-                self.control_qubits.append(self.control_qubits[-1] + 1)"""
+        # Re-create the binary decision space for use in the solver function
+        binary_decision_space = []
+        for x in self.search_space:
+            s = format(x, "0" + str(self.outputs - 1) + "b")
+            binary_decision_space.append(s)
+        control_qubits = []
+        x_gates = []
+        minimum = np.random.choice(self.search_space)
+        position = self.search_space.index(minimum)
+        # Loop to set up initial values of the control qubits and where to apply x-gates
+        for i in range(self.outputs - 1):
+            if (binary_decision_space[position][i] == '0'):
+                control_qubits.append(i + self.inputs)
+                x_gates.append(i + self.inputs)
+            if (binary_decision_space[position][i] == '1'):
+                control_qubits.append(i + self.inputs)
+                x_gates.append(i + self.inputs)
+                break
 
+        with open('control_qbits.pkl', 'wb') as file:
+            pickle.dump(control_qubits, file)
+        with open('xgates.pkl', 'wb') as file:
+            pickle.dump(x_gates, file)
+
+        # Create a list of input and output qubits for use in the solver function
         inputs = []
-        outputs = []
         for i in range(self.inputs):
             inputs.append(i)
-        for i in range(self.outputs):
-            outputs.append(i)
 
-        cr = ClassicalRegister(self.inputs)
-        step_1 = self.state_preparation().compose(self.u_gate())
-        step_1.barrier()
-        step_2 = step_1.compose(self.oracle())
-        step_2.barrier()
-        step_3 = step_2.compose(self.u_gate().inverse())
-        step_3.barrier()
-        grover_circuit = step_3.compose(self.diffuser())
+        with open('inputs.pkl', 'wb') as file:
+            pickle.dump(inputs, file)
+        print("All circuits saved.")
 
-        grover_circuit.add_register(cr)
-        grover_circuit.measure(inputs, inputs)
+    # Function to solve the quantum circuit
+    def solve(self):
 
-        qasm_sim = Aer.get_backend('qasm_simulator')
-        transpiled_grover_circuit = transpile(grover_circuit, qasm_sim)
-        results = qasm_sim.run(transpiled_grover_circuit, shots=100).result()
-        counts = results.get_counts()
+        # Load Objects
+        with open('xgates.pkl', 'rb') as file:
+            x_gates = pickle.load(file)
+        with open('control_qbits.pkl', 'rb') as file:
+            control_qubits = pickle.load(file)
+        with open('state_prep.pkl', 'rb') as file:
+            state_prep = pickle.load(file)
+        with open('u_gate.pkl', 'rb') as file:
+            u_gate = pickle.load(file)
+        with open('diffuser.pkl', 'rb') as file:
+            diffuser = pickle.load(file)
+        with open('inputs.pkl', 'rb') as file:
+            inputs = pickle.load(file)
 
-        return plot_histogram(counts)
+        # Set up the variables to check for the minimum value
+        minimum = np.random.choice(self.search_space)
+        count = []
+        current_minimums = []
+        transpiled_grover_circuit = 0
 
 
-circuit = QuantumMinimizer(3, 5)
-circuit.solve()
+        # Start preforming the grover operations
+        for i in range(self.outputs - 1):
+
+            register = QuantumRegister(self.inputs + self.outputs)
+            oracle = QuantumCircuit(register)
+
+            # Oracle for the Grover Circuit
+            oracle.x(x_gates)
+            oracle.mcx(control_qubits, self.inputs + self.outputs - 1)
+            oracle.x(x_gates)
+
+            # Compose the grover circuit
+            cr = ClassicalRegister(self.inputs)
+            step_1 = state_prep.compose(u_gate)
+            step_1.barrier()
+            step_2 = step_1.compose(oracle)
+            step_2.barrier()
+            step_3 = step_2.compose(u_gate)
+            step_3.barrier()
+            grover_circuit = step_3.compose(diffuser)
+            grover_circuit.barrier()
+            grover_circuit.add_register(cr)
+            grover_circuit.swap(0, 2)
+            grover_circuit.measure(inputs, inputs)
+
+            # Run the circuit
+            qasm_sim = Aer.get_backend('qasm_simulator')
+            transpiled_grover_circuit = transpile(grover_circuit, qasm_sim)
+            results = qasm_sim.run(transpiled_grover_circuit, shots=1).result()
+            counts = results.get_counts()
+
+            for measured_value in counts:
+                a = int(measured_value[::1], 2)
+
+            if ((self.search_space[a] < minimum) and (len(count) == 0)):
+                minimum = self.search_space[a]
+                control_qubits.append(len(control_qubits) + self.inputs)
+                x_gates.append(len(x_gates) + self.inputs)
+
+            elif (self.search_space[a] >= minimum):
+                count.append(0)
+                # if everything is 0
+                if len(control_qubits) != self.outputs - 1:
+                    control_qubits.append(len(control_qubits) + self.inputs)
+
+                # Update when you need to mark 1 on the register
+                if (len(count) == 1):
+                    x_gates[-1] = x_gates[-1] + 1
+
+                else:
+                    if len(x_gates) != self.outputs - 1:
+                        x_gates.append(x_gates[-1] + 1)
+
+            current_minimums.append(self.search_space[a])
+
+        with open('gover.pkl', 'wb') as file:
+            pickle.dump(transpiled_grover_circuit, file)
+        smallest_val = min(current_minimums)
+        print("Smallest Delay: " + str(smallest_val) + " Path: " + str(a))
+
+
+class ClassicalMinimizer:
+
+    def __init__(self, search_space):
+        self.search_space = search_space
+
+    def solve(self):
+        smallest_value = min(self.search_space)
+        path = self.search_space.index(smallest_value)
+        print("Smallest Delay: " + str(smallest_value) + " Path: " + str(path))
+
+
+quantum_circuit = QuantumMinimizer(3, 20, decision_space)
+classical_circuit = ClassicalMinimizer(decision_space)
+
+'''qasm_sim = Aer.get_backend('qasm_simulator')
+with open('gover.pkl', 'rb') as file:
+    transpiled_grover_circuit = pickle.load(file)'''
+
+quantum_circuit.solve()
+
+def algorithm_solver():
+    #qasm_sim.run(transpiled_grover_circuit, shots=1).result()
+    classical_circuit.solve()
+
+'''if __name__=='__main__':
+    t = Timer("algorithm_solver()", "from __main__ import algorithm_solver")
+    print(t.repeat(1, number=1))'''
+
