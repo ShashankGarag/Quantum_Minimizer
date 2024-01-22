@@ -7,7 +7,7 @@ import numpy as np
 import pickle
 from timeit import Timer
 
-decision_space = [random.randint(1, 1000) for _ in range(20)]
+decision_space = [241,708,647,179,1023,1020,1021,1022]
 
 
 class QuantumMinimizer:
@@ -225,20 +225,20 @@ class ClassicalMinimizer:
         print("Smallest Delay: " + str(smallest_value) + " Path: " + str(path))
 
 
-quantum_circuit = QuantumMinimizer(3, 20, decision_space)
+quantum_circuit = QuantumMinimizer(3, 11, decision_space)
 classical_circuit = ClassicalMinimizer(decision_space)
 
-'''qasm_sim = Aer.get_backend('qasm_simulator')
+qasm_sim = Aer.get_backend('qasm_simulator')
 with open('gover.pkl', 'rb') as file:
-    transpiled_grover_circuit = pickle.load(file)'''
+    transpiled_grover_circuit = pickle.load(file)
 
-quantum_circuit.solve()
+#Run quantum_circuit.save_objects and quantum_circuit.solve before testing
 
 def algorithm_solver():
     #qasm_sim.run(transpiled_grover_circuit, shots=1).result()
     classical_circuit.solve()
 
-'''if __name__=='__main__':
+if __name__=='__main__':
     t = Timer("algorithm_solver()", "from __main__ import algorithm_solver")
-    print(t.repeat(1, number=1))'''
+    print(t.repeat(1, number=1))
 
